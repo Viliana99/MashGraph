@@ -129,20 +129,15 @@ struct Scene {
 	}
 
 	void print_scene(vec camera){
-		float fov = M_PI / 2;
+		float fov = M_PI / 6;
 		std::vector<vec> frame(WIDTH * HEIGHT);
 		for (int i = 0; i < WIDTH; i++){
 			for (int j = 0; j < HEIGHT; j++){
-				/*float step_x = 2*(i + 0.5)/(float)WIDTH  - 1;
-				float step_y = 2*(j + 0.5)/(float)HEIGHT - 1;
-				float x =  step_x*tan(fov/2.)*WIDTH/(float)HEIGHT;
-            	float y = -step_y*tan(fov/2.);*/
-            	//float step_x = 2*(i + 0.5)*tan(fov/2.)/(float)WIDTH; // /(float)WIDTH
-				float step_y = 2*(j + 0.5)*tan(fov/2.)/(float)HEIGHT; // /(float)HEIGHT
-				//float x =  step_x*(float)WIDTH/(float)HEIGHT - (float)WIDTH / 2.;
-            	float y =  step_y +  (float)HEIGHT / 2.;
-            	float y = -(2*(j + 0.5)/(float)height - 1)*tan(fov/2.);
-            	cout << "---------------X:" << x << "Y: "<< y << endl;
+				float new_height = 2 * tan(fov / 2.);
+				float new_width = new_height * (float)WIDTH / (float)HEIGHT;
+				float step = new_height / (float)HEIGHT;
+				float x = j * step - new_height / 2;
+				float y = -(i * step) + new_width / 2;
             	vec dir = vec(x, y, -1).normalize();
             	vec N;
             	frame[i+j*WIDTH] = intersection_ray(camera, dir, N);
@@ -169,6 +164,6 @@ int main(){
 	my_scene.spheres.push_back(Sphere(vec(-10, -5, 5), 2, vec(0.,0.,255)));
 	//my_scene.spheres.push_light(Light(Vect3D(0, 0, 0), 0.5f));
 	//my_scene.spheres.push_light(Light(Vect3D(5, 30, 30), 1.f));
-	my_scene.print_scene(vec(0.,0.,60.));
+	my_scene.print_scene(vec(0.,0.,80.));
 	return 0;
 }
