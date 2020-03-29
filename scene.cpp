@@ -114,7 +114,7 @@ struct Scene {
 
 	Scene(vec c): background(c){}
 
-	bool intersection_ray(const vec& camera, const vec& dir, vec& hit,  vec& normalb, vec& color_pixel){
+	bool intersection_ray(const vec& camera, const vec& dir, vec& hit,  vec& normalb, Material& material_pixel){
 		float min_dist = numeric_limits<float>::max();
 		bool flag_sphere = false;
 		float dist_hit;
@@ -126,7 +126,7 @@ struct Scene {
 	        	if (!(((dir * vco) < 0) && ((vco * vco - spheres[i].radius * spheres[i].radius) > 0))) {
 	        		if ((vco * vco - spheres[i].radius * spheres[i].radius) < 0) {
 	        			if (sqrt(vco * vco)< min_dist){
-	        				color_pixel = spheres[i].material.color;
+	        				material_pixel = spheres[i].material;
 	        				flag_sphere = true;
 	        				min_dist = sqrt(vco * vco);
 	        				dist_hit = sqrt(spheres[i].radius * spheres[i].radius - (spheres[i].center - point_norm)*(spheres[i].center - point_norm));
@@ -135,7 +135,7 @@ struct Scene {
 	        			}
 	        		} else {
 	        			if (sqrt(vco * vco - spheres[i].radius * spheres[i].radius) < min_dist){
-	        				color_pixel = spheres[i].material.color;
+	        				material_pixel = spheres[i].material;
 	        				flag_sphere = true;
 	        				min_dist = sqrt(vco * vco - spheres[i].radius * spheres[i].radius);
 	        				dist_hit = sqrt(spheres[i].radius * spheres[i].radius - (spheres[i].center - point_norm)*(spheres[i].center - point_norm));
@@ -150,19 +150,27 @@ struct Scene {
 	}
 
 	vec lighting_scene(const vec& camera, const vec& dir){
-		float sum_brightness = 0.;		
+		float sum_brightness = 0., sum_shine = 0;		
 		vec normalb;
-		vec color_pixel = background;
+		Material material_pixel = Material(background, 0.f);
 		vec hit;
-		if (intersection_ray(camera, dir, hit, normalb, color_pixel)){
+		if (intersection_ray(camera, dir, hit, normalb, material_pixel)){
 			for (int i = 0; i < lamps.size(); i++){
 				vec a =  (lamps[i].location - hit).normalize();
 				sum_brightness += lamps[i].brightness * (a * normalb);
-				
+				vec med_vec = ((lamps[i].location - hit).normalize() + (camera - hit).normalize()).normalize();
+				sum_shine += pow((med_vec * normalb), material_pixel.shine)* lamps[i].brightness;
 			}
-			return  (color_pixel * max(0.05f, min(1.f , sum_brightness)));
+			vec res = (material_pixel.color * max(0.05f, min(1.f , sum_brightness)) + vec(255., 255., 255.)*sum_shine);
+			if ( (res[0] >= 256) || (res[1] >= 256) || (res[2] >= 256)){
+				//cout<<res<<endl;
+				res = vec(min(255.f, res[0]), min(255.f, res[1]), min(255.f, res[2]));
+				
+				//res = vec(255, 255, 255);
+			}
+			return res; 
 		}
-		return color_pixel;
+		return material_pixel.color;
 	}
 
 	void print_scene(vec camera){
@@ -197,16 +205,16 @@ struct Scene {
 int main(){
 	vec camera = vec(0.,0.,10.);
 	Scene my_scene(vec(0.,0.,0.));
-	Material m1 = Material(vec(255,255, 255), 1.f);
-	Material m2 = Material(vec(255,255,0.), 0.f);
-	Material m3 = Material(vec(0.,0.,255), 0.3f);
-	Material m4 = Material(vec(0.,255.,255), 0.5f);
+	Material m1 = Material(vec(255,255, 255), 50.f);
+	Material m2 = Material(vec(255,255,0.), 100.0f);
+	Material m3 = Material(vec(0.,0.,255), 60.f);
+	Material m4 = Material(vec(0.,255.,255), 11.f);
 	my_scene.spheres.push_back(Sphere(vec(-3,    0,   -16), 2, m1));
 	my_scene.spheres.push_back(Sphere(vec(-1.0, -1.5, -12), 2, m2));
 	my_scene.spheres.push_back(Sphere(vec(1.5, -0.5, -18), 3, m3));
 	my_scene.spheres.push_back(Sphere(vec(7., 5., -18), 3, m4));
 	my_scene.lamps.push_back(Light(vec(-20, 20,  20), 1.));//camera, 1.));//
-	//my_scene.lamps.push_back(Light(vec(10, -20,  40), 1.));
+	my_scene.lamps.push_back(Light(vec(10, -20,  40), 0.3));
 	my_scene.lamps.push_back(Light(camera, 0.02));
 	my_scene.print_scene(camera);
 	return 0;
