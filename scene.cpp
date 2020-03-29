@@ -85,15 +85,20 @@ ostream& operator<<(ostream& out, const vec& v){
 	out << v.x << ' ' << v.y  << " " << v.z << endl;
 	return out;
 }
-/*
-struct Object{
+
+struct Material{
 	vec color;
-};*/
+	float shine;
+	Material(const vec& c, const float s): color(c), shine(s){};
+};
+
 struct Sphere{
-	vec color;
+	//vec color;
+	Material material;
 	vec center;
 	float radius;
-	Sphere(vec c, float r, vec cc): center(c), radius(r), color(cc) {} 
+
+	Sphere(const vec& c, float r, const Material& cc): center(c), radius(r), material(cc) {} 
 };
 
 struct Light {
@@ -109,59 +114,53 @@ struct Scene {
 
 	Scene(vec c): background(c){}
 
-	vec intersection_ray(const vec& camera, const vec& dir,  vec& normalb){
-		vec color_pixel = background;
+	bool intersection_ray(const vec& camera, const vec& dir, vec& hit,  vec& normalb, vec& color_pixel){
 		float min_dist = numeric_limits<float>::max();
-		int index;
 		bool flag_sphere = false;
-		vec point;
 		float dist_hit;
-		vec hit;
 		for (int i = 0; i < spheres.size(); i++) {
 			vec vco = spheres[i].center - camera;
 	        vec point_norm = camera + (dir * vco) * dir;
 
-	        //cout <<  spheres[i].center << point_norm << endl;
 	        if (!((spheres[i].center - point_norm).norm() > spheres[i].radius)) {
 	        	if (!(((dir * vco) < 0) && ((vco * vco - spheres[i].radius * spheres[i].radius) > 0))) {
 	        		if ((vco * vco - spheres[i].radius * spheres[i].radius) < 0) {
 	        			if (sqrt(vco * vco)< min_dist){
-	        				color_pixel = spheres[i].color;
+	        				color_pixel = spheres[i].material.color;
 	        				flag_sphere = true;
-	        				index = i;
 	        				min_dist = sqrt(vco * vco);
-	        				point = point_norm;
 	        				dist_hit = sqrt(spheres[i].radius * spheres[i].radius - (spheres[i].center - point_norm)*(spheres[i].center - point_norm));
-	        				hit = camera + dir*(dist_hit);////////////////////////////////
+	        				hit = camera + dir*(dist_hit);
             				normalb = (hit - spheres[i].center).normalize();
 	        			}
 	        		} else {
 	        			if (sqrt(vco * vco - spheres[i].radius * spheres[i].radius) < min_dist){
-	        				color_pixel = spheres[i].color;
+	        				color_pixel = spheres[i].material.color;
 	        				flag_sphere = true;
-	        				index = i;
-	        				point = point_norm;
 	        				min_dist = sqrt(vco * vco - spheres[i].radius * spheres[i].radius);
 	        				dist_hit = sqrt(spheres[i].radius * spheres[i].radius - (spheres[i].center - point_norm)*(spheres[i].center - point_norm));
-	        				hit = point_norm - dir*(dist_hit);////////////////////////////////
+	        				hit = point_norm - dir*(dist_hit);
             				normalb = (hit - spheres[i].center).normalize();
 	        			}
 	        		}
 	        	} 
 	        }
 		}
+		return flag_sphere;
+	}
 
+	vec lighting_scene(const vec& camera, const vec& dir){
 		float sum_brightness = 0.;		
-
-		if (flag_sphere){
-			//vec a = (point - spheres[index].center).normalize();
+		vec normalb;
+		vec color_pixel = background;
+		vec hit;
+		if (intersection_ray(camera, dir, hit, normalb, color_pixel)){
 			for (int i = 0; i < lamps.size(); i++){
 				vec a =  (lamps[i].location - hit).normalize();
 				sum_brightness += lamps[i].brightness * (a * normalb);
 				
 			}
-			//cout <<  (a * normalb) << endl;
-			return  (color_pixel * max(0.0f, min(1.f , sum_brightness)));
+			return  (color_pixel * max(0.05f, min(1.f , sum_brightness)));
 		}
 		return color_pixel;
 	}
@@ -177,8 +176,8 @@ struct Scene {
 				float x = j * step - new_height / 2;
 				float y = -(i * step) + new_width / 2;
             	vec dir = vec(x, y, -1).normalize();
-            	vec N;
-            	frame[i+j*WIDTH] = intersection_ray(camera, dir, N);
+            	//vec N;
+            	frame[i+j*WIDTH] = lighting_scene(camera, dir);
 			}
 		}
 		std::ofstream ofs; 
@@ -198,18 +197,17 @@ struct Scene {
 int main(){
 	vec camera = vec(0.,0.,10.);
 	Scene my_scene(vec(0.,0.,0.));
-	/*my_scene.spheres.push_back(Sphere(vec(0, 0, 25), 5, vec(255,255, 255)));
-	my_scene.spheres.push_back(Sphere(vec(10, 10, 50), 10, vec(255,255,0.)));
-	my_scene.spheres.push_back(Sphere(vec(-10, -5, 5), 2, vec(0.,0.,255)));
-	my_scene.lamps.push_back(Light(vec(0, 0, 0), 0.5));
-	my_scene.lamps.push_back(Light(vec(5, 30, 30), 1.));
-	my_scene.lamps.push_back(Light(camera, 1.));*/
-	my_scene.spheres.push_back(Sphere(vec(-3,    0,   -16), 2, vec(255,255, 255)));
-	my_scene.spheres.push_back(Sphere(vec(-1.0, -1.5, -12), 2, vec(255,255,0.)));
-	my_scene.spheres.push_back(Sphere(vec(1.5, -0.5, -18), 3, vec(0.,0.,255)));
-	my_scene.spheres.push_back(Sphere(vec(7., 5., -18), 3, vec(0.,255.,255)));
-	my_scene.lamps.push_back(Light(vec(-20, 20,  20), 0.2));//camera, 1.));//
-	my_scene.lamps.push_back(Light(vec(10, -20,  40), 1.));
+	Material m1 = Material(vec(255,255, 255), 1.f);
+	Material m2 = Material(vec(255,255,0.), 0.f);
+	Material m3 = Material(vec(0.,0.,255), 0.3f);
+	Material m4 = Material(vec(0.,255.,255), 0.5f);
+	my_scene.spheres.push_back(Sphere(vec(-3,    0,   -16), 2, m1));
+	my_scene.spheres.push_back(Sphere(vec(-1.0, -1.5, -12), 2, m2));
+	my_scene.spheres.push_back(Sphere(vec(1.5, -0.5, -18), 3, m3));
+	my_scene.spheres.push_back(Sphere(vec(7., 5., -18), 3, m4));
+	my_scene.lamps.push_back(Light(vec(-20, 20,  20), 1.));//camera, 1.));//
+	//my_scene.lamps.push_back(Light(vec(10, -20,  40), 1.));
+	my_scene.lamps.push_back(Light(camera, 0.02));
 	my_scene.print_scene(camera);
 	return 0;
 }
