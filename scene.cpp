@@ -194,58 +194,41 @@ struct Scene {
 		return false;
 	}
 
+	vec refract(const Material& material_pixel, const vec& dir, const vec& normalb) {
+		float n_1 = WhereAmI > 0.f ? 1.f : material_pixel.refraction_saturation;
+		float n_2 = WhereAmI > 0.f ?  material_pixel.refraction_saturation : 1.f;
+		vec refraction_dir;
+		float cosFi1 = (normalb * dir) < 0 ? -(normalb * dir) : (normalb * dir);
+		if (!(1 - (1 - pow(cosFi1, 2)) * pow(n_1 / n_2, 2) < 0)) {
+			float cosFi2 = sqrtf(1 - (1 - pow(cosFi1, 2)) * pow(n_1 / n_2, 2));
+			vec parallel_transfer = (dir + (cosFi1) * normalb).normalize();
+			refraction_dir = (dir *(n_1 / n_2) + normalb * ((n_1 / n_2) * (cosFi1) - cosFi2)).normalize(); 
+		} else {
+			 refraction_dir = vec(0., 0., 0.);
+		}
+		return refraction_dir;
+	}
+	
 	vec lighting_scene(const vec& camera, const vec& dir, int depth=0) {
 		float sum_brightness = 0.f, sum_shine = 0.f;		
 		vec normalb;
 		Material material_pixel = Material(background, vec(1., 0., 0.), 0.f, 0.0f);
 		vec hit;
 		if ((depth < depth_scene) && intersection_ray(camera, dir, hit, normalb, material_pixel)) {
+			
 			vec hit_shift = hit + eps2 * normalb;
 			vec reflection_color;
 			vec refraction_color;
+
 			if (material_pixel.mirror) {
 				vec reflection_dir = dir - 2.f * (normalb * dir) * normalb;
-
-
-				/*if (reflection_dir * normalb < 0) {
-					hit_shift = hit - eps*normalb;
-				} else {
-					hit_shift = hit + eps*normalb;
-				}*/
-
-
-
 				reflection_color = lighting_scene(hit_shift, reflection_dir, depth + 1);
 		    }
-			/*if (reflection_dir * normalb < 0) {
-				hit_shift = hit - eps*normalb;
-			} else {
-				hit_shift = hit + eps*normalbж
-			}*/
+
 			if (material_pixel.refraction) {
-				float n_1 = WhereAmI > 0.f ? 1.f : material_pixel.refraction_saturation;
-				float n_2 = WhereAmI > 0.f ?  material_pixel.refraction_saturation : 1.f;
-				vec refraction_dir;
-
-				if (!(1 - (1 - pow(normalb * dir, 2)) * pow(n_1 / n_2, 2) < 0)) {
-					
-					float cosFi2 = sqrtf(1 - (1 - pow(normalb * dir, 2)) * pow(n_1 / n_2, 2));
-					vec parallel_transfer = (dir + (normalb * dir) * normalb).normalize();
-					
-                    /*if (refraction_dir * normalb < 0) {
-						hit_shift = hit - eps*normalb;
-					} else {
-						hit_shift = hit + eps*normalb;
-					}*/
-
-					refraction_dir = (dir *(n_1 / n_2) + normalb * ((n_1 / n_2) * (normalb * dir) - cosFi2)).normalize(); 
-					//cout << refraction_dir << endl;
-				} else {
-					 refraction_dir = vec(0., 0., 0.);
-				}
-				refraction_color = lighting_scene(hit_shift, refraction_dir, depth + 1);
+				refraction_color = lighting_scene(hit_shift, refract(material_pixel, dir, normalb), depth + 1);
 			}
-			
+
 			for (int i = 0; i < lamps.size(); i++){
 				if (skip_light(i, hit)) {
 					continue;
@@ -264,9 +247,6 @@ struct Scene {
 			vec res = material_pixel.color * max(material_pixel.min_light, min(1.f , sum_brightness))*material_pixel.color_saturation;
 			res = res + vec(255., 255., 255.)*sum_shine*material_pixel.matte;
 	        res =  res + reflection_color*material_pixel.mirror;
-	        if (material_pixel.refraction) {
-	        	//cout << refraction_color*material_pixel.refraction << refraction_color << material_pixel.refraction  << res << endl;
-	        }
 			res = res + refraction_color*material_pixel.refraction;
 		
 			if ( (res[0] >= 256) || (res[1] >= 256) || (res[2] >= 256)) {
@@ -310,14 +290,14 @@ int main(){
 	//vec color; const float shine; const float min_light; float matte1=0.f; float mirror1=0.f;
 	//float color_saturation1=1.f, float refraction ; float refraction_saturation)
 	vec setting1 =  vec(1.,1., 0.3); //c_s, no_matte (0), mirror
-	vec setting2 =  vec(0.,0.2, 0.25);
+	vec setting2 =  vec(0.,0.2, 0.15);
 	//setting2 =  vec(0.,0., 0.);
 	vec setting3 =  vec(1.,0.5, 0.01);
 	vec setting4 =  vec(1.,0., 0.);
 	vec camera = vec(0., 0., 10.);
 	Scene my_scene(vec(255., 182., 193.), 4);//shine min_light refrac refr_sat
 	Material m1 = Material(vec(255, 217, 25),  setting1, 50.f,  0.05f);
-	Material m2 = Material(vec(255, 255 ,0.),  setting2, 60.0f, 0.1f,   0.8f,  1.33f); //0.f, 1.55f);
+	Material m2 = Material(vec(255, 255 ,0.),  setting2, 60.0f, 0.1f,   0.8f,  1.55f); //0.f, 1.55f);
 	//m2 = Material(vec(255, 255 ,0.),  setting2, 60.0f, 0.0f,   1.f,  1.33f); 
 	Material m3 = Material(vec(0., 0., 255),   setting3, 50.f,  0.1f);
 	Material m4 = Material(vec(0., 255., 255), setting4, 100.f, 0.05f);
