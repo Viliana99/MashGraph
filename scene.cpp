@@ -109,12 +109,16 @@ struct Material{
 		refraction_saturation = refraction_saturation1;
 	};
 };
+struct Plane {
+	vec position;
+	Material material_table;
+	Plane(const vec& pos, const Material& mater) : position(pos), material_table(mater) {}
+};
 
 struct Sphere{
 	Material material;
 	vec center;
 	float radius;
-
 	Sphere(const vec& c, float r, const Material& cc): center(c), radius(r), material(cc) {} 
 };
 
@@ -132,8 +136,8 @@ struct Scene {
 	float eps;
 	float eps2;
 	bool WhereAmI; //in air (true) or in object (false)
-
-	Scene(vec c, int d, float e=0.01, float ee=0.0001, bool where=true): background(c), WhereAmI(where), depth_scene(d) {
+	Plane plane;
+	Scene(vec c, int d, const Plane& p, float e=0.01, float ee=0.001, bool where=true): plane(p), background(c), WhereAmI(where), depth_scene(d) {
 		eps = e;
 		eps2 = ee;
 	}
@@ -143,23 +147,22 @@ struct Scene {
 	    vec point_norm = camera + (dir * vco) * dir;
         if (!((s.center - point_norm).norm() > s.radius)) {
         	if (!(((dir * vco) < 0) && ((vco * vco - s.radius * s.radius) > 0))) {
-				if ((vco * vco - s.radius * s.radius) > eps * 10 ) {
+				if ((vco * vco - s.radius * s.radius) > eps ) {
 					if (sqrt(vco * vco - s.radius * s.radius) < dist) {
 	    				dist = sqrt(vco * vco - s.radius * s.radius);
-	    				float dist_hit = sqrt(s.radius * s.radius - (s.center - point_norm)*(s.center - point_norm));
+	    				float dist_hit = sqrt(s.radius * s.radius - (s.center - point_norm)*(s.center - point_norm) + eps2);
 	    				hit = point_norm - dir*(dist_hit);
 	    				WhereAmI = true;
 	    				return true;
 		        	} 
 		        } else {
-		        	if (sqrt(vco * vco)< dist) {
+		        	//if (sqrt(vco * vco)< dist) {
         				dist = sqrt(vco * vco);
-        				float dist_hit = sqrt(s.radius * s.radius - (s.center - point_norm)*(s.center - point_norm));
+        				float dist_hit = 2.f * sqrt(s.radius * s.radius - (s.center - point_norm)*(s.center - point_norm));
         				hit = camera + dir*(dist_hit);
         				WhereAmI = false;
-        				//cout << "inside" << endl;
         				return true;
-	        		}
+	        		//}/
 		        }
         	} 
         }
@@ -176,7 +179,58 @@ struct Scene {
 				normalb = (hit - spheres[i].center).normalize();
 	        }
 		}
+/*
+		float plane_dist = numeric_limits<float>::max();
+		vec a = vec(camera.x - plane.position.x, 0., 0.);
+		float cosFi  = a * dir;
+		if (cosFi > 0) {
+			return flag_sphere;
+		}
+		float len_hypotenuse = a.norm() * (1 / cosFi);
+		vec table_hit = dir * len_hypotenuse + camera;
+		//cout << len_hypotenuse << min_dist << endl;
+		if ((len_hypotenuse < min_dist) & (100<len_hypotenuse < 1000)) {
+			hit = table_hit;
+			normalb = vec(0., -1., 0.);
+			material_pixel = plane.material_table;
+			flag_sphere = true;
+		}
+*/
+
+		/*float plane_dist = numeric_limits<float>::max();
+		vec a = camera - plane.position;
+		float cosFi  = abs(a.normalize() * dir);
+		//cout << cosFi << endl;
+		float len_hypotenuse = a.norm() * (1 / cosFi);
+		vec table_hit = dir * len_hypotenuse + camera;
+		//cout << len_hypotenuse << min_dist << endl;
+		if (len_hypotenuse < min_dist) {
+			hit = table_hit;
+			normalb = vec(0., 0., 1.);
+			material_pixel = plane.material_table;
+			flag_sphere = true;
+		}*/
+		float dist_plane = std::numeric_limits<float>::max();
+  		if (fabs(dir.x)>0.00001)  {
+  			float d = (camera.x+plane.position.x)/(dir.x); // the checkerboard plane has equation y = -4
+		    if (d > 0) {
+			    vec hit_plane = camera + dir*d;
+			    //cout << hit_plane.x << endl;
+			    if (fabs(hit_plane.y)<30 && hit_plane.z<camera.z && hit_plane.z>-600 && d<min_dist) {
+			        dist_plane = d;
+			        hit = hit_plane;
+			        normalb = vec(-1,0,0);
+			        material_pixel = plane.material_table;
+			       // cout << int(.5*hit.y+1) + int(.5*hit.z) << endl;
+			        material_pixel.color = ((int(0.25 * hit.y - 30) + int(0.25 * hit.z)) & 1) ? vec(255,255,255) : vec(0, 0, 0);
+			        //material_pixel.color = material_pixel.color*.3;
+			    }
+			}
+		}
+		return std::min(min_dist, dist_plane) < 100000;
+
 		return flag_sphere;
+
 	}
 
 	bool skip_light(int ind, vec& hit) {
@@ -215,20 +269,16 @@ struct Scene {
 		Material material_pixel = Material(background, vec(1., 0., 0.), 0.f, 0.0f);
 		vec hit;
 		if ((depth < depth_scene) && intersection_ray(camera, dir, hit, normalb, material_pixel)) {
-			
 			vec hit_shift = hit + eps2 * normalb;
 			vec reflection_color;
 			vec refraction_color;
-
 			if (material_pixel.mirror) {
 				vec reflection_dir = dir - 2.f * (normalb * dir) * normalb;
-				reflection_color = lighting_scene(hit_shift, reflection_dir, depth + 1);
+				reflection_color =  lighting_scene(hit_shift, reflection_dir, depth + 1);
 		    }
-
 			if (material_pixel.refraction) {
-				refraction_color = lighting_scene(hit_shift, refract(material_pixel, dir, normalb), depth + 1);
+				refraction_color =  lighting_scene(hit_shift, refract(material_pixel, dir, normalb), depth + 1);
 			}
-
 			for (int i = 0; i < lamps.size(); i++){
 				if (skip_light(i, hit)) {
 					continue;
@@ -238,17 +288,15 @@ struct Scene {
 				vec med_vec;
 				if ((camera - hit).norm() < 0.1) {
 					vec med_vec = (lamps[i].location - hit).normalize();
-				} else {
-					med_vec = ((lamps[i].location - hit).normalize() + (camera - hit).normalize()).normalize();
-				}
+				} else med_vec = ((lamps[i].location - hit).normalize() + (camera - hit).normalize()).normalize();
 				sum_shine += pow((med_vec * normalb), material_pixel.shine)* lamps[i].brightness;
 			}
-
 			vec res = material_pixel.color * max(material_pixel.min_light, min(1.f , sum_brightness))*material_pixel.color_saturation;
+			res = res + refraction_color*material_pixel.refraction;
 			res = res + vec(255., 255., 255.)*sum_shine*material_pixel.matte;
 	        res =  res + reflection_color*material_pixel.mirror;
-			res = res + refraction_color*material_pixel.refraction;
-		
+			
+			//cout << refraction_color << endl;
 			if ( (res[0] >= 256) || (res[1] >= 256) || (res[2] >= 256)) {
 				res = vec(min(255.f, max(0.f, res[0])), min(255.f, max(0.f,res[1])), min(255.f, max(0.f,res[2])));
 			}
@@ -260,8 +308,8 @@ struct Scene {
 	void print_scene(vec camera){
 		float fov = M_PI / 6;
 		std::vector<vec> frame(WIDTH * HEIGHT);
-		for (int i = 0; i < WIDTH; i++){
-			for (int j = 0; j < HEIGHT; j++){
+		for (int i = 0; i < WIDTH; i++) {
+			for (int j = 0; j < HEIGHT; j++) {
 				WhereAmI = true;
 				float new_height = 2 * tan(fov / 2.);
 				float new_width = new_height * (float)WIDTH / (float)HEIGHT;
@@ -290,19 +338,27 @@ int main(){
 	//vec color; const float shine; const float min_light; float matte1=0.f; float mirror1=0.f;
 	//float color_saturation1=1.f, float refraction ; float refraction_saturation)
 	vec setting1 =  vec(1.,1., 0.3); //c_s, no_matte (0), mirror
-	vec setting2 =  vec(0.,0.2, 0.15);
+	//fdsfsdfdsfsdfdkffdkjngkjfbfjhvbhfbvhkdbfhvbfdkjbvjds
+
+	vec setting2 =  vec(0. ,0.5, 0.);
 	//setting2 =  vec(0.,0., 0.);
-	vec setting3 =  vec(1.,0.5, 0.01);
+	vec setting3 =  vec(1.,0.5, 1.0);
 	vec setting4 =  vec(1.,0., 0.);
-	vec camera = vec(0., 0., 10.);
-	Scene my_scene(vec(255., 182., 193.), 4);//shine min_light refrac refr_sat
+	vec camera = vec(3., 0., 30.);
 	Material m1 = Material(vec(255, 217, 25),  setting1, 50.f,  0.05f);
-	Material m2 = Material(vec(255, 255 ,0.),  setting2, 60.0f, 0.1f,   0.8f,  1.55f); //0.f, 1.55f);
+	Material m2 = Material(vec(255, 255 ,0.),  setting2, 5000.0f, 0.f,   0.99f,  1.55f); //0.f, 1.55f);
 	//m2 = Material(vec(255, 255 ,0.),  setting2, 60.0f, 0.0f,   1.f,  1.33f); 
-	Material m3 = Material(vec(0., 0., 255),   setting3, 50.f,  0.1f);
+	Material m3 = Material(vec(0., 0., 255),   setting3, 50.f,  0.1f, 0.f);
 	Material m4 = Material(vec(0., 255., 255), setting4, 100.f, 0.05f);
+
+	vec setting_for_plane1 =  vec(0.8,0.8, 0.5);
+	Material m_for_plane1 = Material(vec(255., 0., 255),   setting_for_plane1, 50.f,  0.05f);
+	Plane plane_chess =Plane(vec(4., 0., -1.), m_for_plane1);
+	Scene my_scene(vec(255., 182., 193.), 4, plane_chess);//shine min_light refrac refr_sat
+
+
 	my_scene.spheres.push_back(Sphere(vec(-3,    0,   -16), 2, m1));
-	my_scene.spheres.push_back(Sphere(vec(-1.0, -2, -5), 2, m2));
+	my_scene.spheres.push_back(Sphere(vec(0., -3, 0), 2, m2));
 	my_scene.spheres.push_back(Sphere(vec(1.5, -0.5, -18), 3, m3));
 	my_scene.spheres.push_back(Sphere(vec(7., 5., -18), 3, m4));
 	my_scene.lamps.push_back(Light(vec(-30, 20,  20), 1.));//camera, 1.));//
