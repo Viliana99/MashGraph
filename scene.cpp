@@ -216,7 +216,9 @@ struct Scene {
 		    if (d > 0) {
 			    vec hit_plane = camera + dir*d;
 			    //cout << hit_plane.x << endl;
-			    if (fabs(hit_plane.y)<30 && hit_plane.z<camera.z && hit_plane.z>-600 && d<min_dist) {
+			    // if (fabs(hit_plane.y)<30 && hit_plane.z<camera.z && hit_plane.z>-600 && d<min_dist) {
+			   if (d<min_dist) {
+			    
 			        dist_plane = d;
 			        hit = hit_plane;
 			        normalb = vec(-1,0,0);
@@ -354,11 +356,11 @@ int main(){
 	vec setting_for_plane1 =  vec(0.8,0.8, 0.5);
 	Material m_for_plane1 = Material(vec(255., 0., 255),   setting_for_plane1, 50.f,  0.05f);
 	Plane plane_chess =Plane(vec(4., 0., -1.), m_for_plane1);
-	Scene my_scene(vec(255., 182., 193.), 4, plane_chess);//shine min_light refrac refr_sat
+	Scene my_scene(vec(255., 182., 193.), 7, plane_chess);//shine min_light refrac refr_sat
 
 
 	my_scene.spheres.push_back(Sphere(vec(-3,    0,   -16), 2, m1));
-	my_scene.spheres.push_back(Sphere(vec(0., -3, 0), 2, m2));
+	my_scene.spheres.push_back(Sphere(vec(0., -2, 0), 2, m2));
 	my_scene.spheres.push_back(Sphere(vec(1.5, -0.5, -18), 3, m3));
 	my_scene.spheres.push_back(Sphere(vec(7., 5., -18), 3, m4));
 	my_scene.lamps.push_back(Light(vec(-30, 20,  20), 1.));//camera, 1.));//
