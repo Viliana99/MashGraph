@@ -4,90 +4,15 @@
 #include <limits>
 #include <fstream>
 #include <vector>
+#include "omp.h"
+#include "head.h"
 
 
-
-
-#define WIDTH 1024
-#define HEIGHT 768
+#define WIDTH 1300
+#define HEIGHT 1300
 
 using namespace std;
 
-class vec {
-
-  private:
-  public:
-    float x;
-    float y;
-    float z;
-
- 
-
-	vec(float a=0,float b=0, float c=0): x(a),y(b),z(c){};
-	
-	float norm() const {
-		return sqrt(x*x + y*y + z*z); 
-	}
-	
-	friend float operator*(const vec& a, const vec& b);
-	
-	friend vec operator*(float a, const vec& b);
-	
-	friend vec operator+(const vec& a, const vec& b);
-
-	friend vec operator-(const vec& a, const vec& b);
-
-	friend vec operator*(const vec& a, float b);
-	
-
-    vec& normalize() {
-	    float norma = (*this).norm();
-	    this -> x = x / norma;
-	    this -> y = y / norma; 
-	    this -> z = z / norma;
-	    /*if (!norma) {
-	    	cout << "noooooooooooorm" << endl;
-	    }*/
-	    return *this;
-    }
-
-    friend ostream& operator<<(ostream& out, const vec& v);
-	
-	float operator[](size_t i) {
-	    assert(i < 3);
-	    return i == 0 ? x : (i == 1 ? y : z);
-    }
-	
-};
-
-
-
-
-
-vec operator+(const vec& a, const vec& b) {
-	    return vec(a.x + b.x, a.y + b.y, a.z + b.z);
-}
-
-vec operator-(const vec& a, const vec& b) {
-	    return vec(a.x - b.x, a.y - b.y, a.z - b.z);
-}
-
-float operator*(const vec& a, const vec& b) {
-	return (a.x * b.x + a.y * b.y + a.z * b.z);
-}
-
-vec operator*(float a, const vec& b) {
-	return vec(a * b.x, a * b.y, a * b.z);
-}
-
-vec operator*(const vec& a, float b) {
-	return vec(a.x * b, a.y * b, a.z * b);
-}
-
-ostream& operator<<(ostream& out, const vec& v){
-	out << v.x << ' ' << v.y  << " " << v.z << endl;
-	return out;
-}
 
 struct Material{
 
@@ -122,6 +47,14 @@ struct Sphere{
 	Sphere(const vec& c, float r, const Material& cc): center(c), radius(r), material(cc) {} 
 };
 
+struct Cube{
+	Material material;
+	vec vmin;
+	vec vmax;
+	//float a;
+	Cube(const vec& c, const vec& c1, const Material& cc): vmin(c), vmax(c1), material(cc) {} 
+};
+
 struct Light {
 	float brightness;
 	vec location;
@@ -131,13 +64,14 @@ struct Light {
 struct Scene {
 	std::vector<Sphere> spheres;
 	std::vector<Light> lamps;
+	std::vector<Cube> cubes;
 	vec background;
 	int depth_scene;
 	float eps;
 	float eps2;
 	bool WhereAmI; //in air (true) or in object (false)
 	Plane plane;
-	Scene(vec c, int d, const Plane& p, float e=0.01, float ee=0.001, bool where=true): plane(p), background(c), WhereAmI(where), depth_scene(d) {
+	Scene(vec c, int d, const Plane& p, float e=0.01, float ee=0.0001, bool where=true): plane(p), background(c), WhereAmI(where), depth_scene(d) {
 		eps = e;
 		eps2 = ee;
 	}
@@ -156,17 +90,88 @@ struct Scene {
 	    				return true;
 		        	} 
 		        } else {
-		        	//if (sqrt(vco * vco)< dist) {
-        				dist = sqrt(vco * vco);
-        				float dist_hit = 2.f * sqrt(s.radius * s.radius - (s.center - point_norm)*(s.center - point_norm));
-        				hit = camera + dir*(dist_hit);
-        				WhereAmI = false;
-        				return true;
-	        		//}/
-		        }
+	        
+    				dist = sqrt(vco * vco);
+    				float dist_hit = 2.f * sqrt(s.radius * s.radius - (s.center - point_norm)*(s.center - point_norm));
+    				hit = camera + dir*(dist_hit);
+    				WhereAmI = false;
+    				return true;
+   		        }
         	} 
         }
         return false;
+	}
+
+	bool intersection_plane(const vec& camera,const vec& dir, vec& hit, float& min_dist, vec& normalb, Material& material_pixel) {
+		float dist_plane = std::numeric_limits<float>::max();
+  		if (fabs(dir.x)>0.00001)  {
+  			float d = (camera.x+plane.position.x)/(dir.x); 
+		    if (d > 0) {
+			    vec hit_plane = camera + dir*d;
+			   if (d<min_dist) {
+			        dist_plane = d;
+			        hit = hit_plane;
+			        normalb = vec(-1,0,0);
+			        material_pixel = plane.material_table;
+			        material_pixel.color = ((int(0.25 * hit.y - 30) + int(0.25 * hit.z)) & 1) ? vec(255,255,255) : vec(0, 0, 0);
+			        return true;
+			    }
+			}
+		}
+		return false;
+	}
+	bool intersection_side(vec camera, vec dir, Cube& cube, vec& hit, float& min_dist, vec& normalb) {
+
+		double t_near = numeric_limits<float>::min(),
+		t_far = numeric_limits<float>::max();
+		float t1, t2;
+
+		for (int i = 0; i < 3; i++) {
+			if (abs(dir[i]) >= 0.0001) {
+				t1 = (cube.vmin[i] - camera[i]) / dir[i];
+				t2 = (cube.vmax[i] - camera[i]) / dir[i];
+
+				if (t1 > t2)
+					std::swap(t1, t2);
+				if (t1 > t_near)
+					t_near = t1;
+				if (t2 < t_far)
+					t_far = t2;
+				if (t_near > t_far)
+					return false;
+				if (t_far < 0.0)
+					return false;
+			} 
+			else {
+				if (camera[i] < cube.vmin[i] || camera[i] > cube.vmax[i])
+					return false;
+			}
+		} 
+		if (t_near <= t_far && t_far >=0 && t_near < min_dist) {
+			min_dist = t_near;
+			hit = camera + min_dist * dir;
+			vec tmp = vec(0., 0., 0.);
+			for (int i = 0; i < 3; i++) {
+				if (abs(hit[i] - cube.vmin[i]) < eps)
+					tmp[i] = -1.;
+				if (abs(hit[i] - cube.vmax[i]) < eps)
+					tmp[i] = 1.;
+			}
+			normalb = tmp;
+			return true;
+		}
+		else return false;
+	}
+
+	bool intersection_cube(const vec& camera,const vec& dir, vec& hit, float& min_dist, vec& normalb, Material& material_pixel) {
+		bool flag_cube = false;
+		for(int i = 0; i < cubes.size(); i++) {
+			if (intersection_side(camera, dir, cubes[i], hit, min_dist, normalb)) {
+				flag_cube = true;
+				material_pixel = cubes[i].material;
+			}
+		}
+		return flag_cube;
 	}
 
 	bool intersection_ray(const vec& camera, const vec& dir, vec& hit,  vec& normalb, Material& material_pixel ) {
@@ -179,58 +184,8 @@ struct Scene {
 				normalb = (hit - spheres[i].center).normalize();
 	        }
 		}
-/*
-		float plane_dist = numeric_limits<float>::max();
-		vec a = vec(camera.x - plane.position.x, 0., 0.);
-		float cosFi  = a * dir;
-		if (cosFi > 0) {
-			return flag_sphere;
-		}
-		float len_hypotenuse = a.norm() * (1 / cosFi);
-		vec table_hit = dir * len_hypotenuse + camera;
-		//cout << len_hypotenuse << min_dist << endl;
-		if ((len_hypotenuse < min_dist) & (100<len_hypotenuse < 1000)) {
-			hit = table_hit;
-			normalb = vec(0., -1., 0.);
-			material_pixel = plane.material_table;
-			flag_sphere = true;
-		}
-*/
-
-		/*float plane_dist = numeric_limits<float>::max();
-		vec a = camera - plane.position;
-		float cosFi  = abs(a.normalize() * dir);
-		//cout << cosFi << endl;
-		float len_hypotenuse = a.norm() * (1 / cosFi);
-		vec table_hit = dir * len_hypotenuse + camera;
-		//cout << len_hypotenuse << min_dist << endl;
-		if (len_hypotenuse < min_dist) {
-			hit = table_hit;
-			normalb = vec(0., 0., 1.);
-			material_pixel = plane.material_table;
-			flag_sphere = true;
-		}*/
-		float dist_plane = std::numeric_limits<float>::max();
-  		if (fabs(dir.x)>0.00001)  {
-  			float d = (camera.x+plane.position.x)/(dir.x); // the checkerboard plane has equation y = -4
-		    if (d > 0) {
-			    vec hit_plane = camera + dir*d;
-			    //cout << hit_plane.x << endl;
-			    // if (fabs(hit_plane.y)<30 && hit_plane.z<camera.z && hit_plane.z>-600 && d<min_dist) {
-			   if (d<min_dist) {
-			    
-			        dist_plane = d;
-			        hit = hit_plane;
-			        normalb = vec(-1,0,0);
-			        material_pixel = plane.material_table;
-			       // cout << int(.5*hit.y+1) + int(.5*hit.z) << endl;
-			        material_pixel.color = ((int(0.25 * hit.y - 30) + int(0.25 * hit.z)) & 1) ? vec(255,255,255) : vec(0, 0, 0);
-			        //material_pixel.color = material_pixel.color*.3;
-			    }
-			}
-		}
-		return std::min(min_dist, dist_plane) < 100000;
-
+		flag_sphere = flag_sphere || intersection_plane(camera, dir, hit, min_dist, normalb, material_pixel);
+		flag_sphere = flag_sphere || intersection_cube(camera, dir, hit, min_dist, normalb, material_pixel);
 		return flag_sphere;
 
 	}
@@ -310,18 +265,31 @@ struct Scene {
 	void print_scene(vec camera){
 		float fov = M_PI / 6;
 		std::vector<vec> frame(WIDTH * HEIGHT);
+		omp_set_num_threads(10);
+//#pragma omp parallel
+
+		#pragma omp for
 		for (int i = 0; i < WIDTH; i++) {
+			#pragma omp for
 			for (int j = 0; j < HEIGHT; j++) {
 				WhereAmI = true;
 				float new_height = 2 * tan(fov / 2.);
 				float new_width = new_height * (float)WIDTH / (float)HEIGHT;
 				float step = new_height / (float)HEIGHT;
-				float x = (j + 0.5) * step - new_height / 2;
-				float y = -((i + 0.5) * step) + new_width / 2;
-            	vec dir = vec(x, y, -1).normalize();
-            	frame[i+j*WIDTH] = lighting_scene(camera, dir);
+				vec res;
+
+				for (float i_f = 0.33; i_f < 1.f; i_f = i_f + 0.34) {
+					for (float j_f = 0.33; j_f < 1.f; j_f = j_f + 0.34) {
+						float x = (j + j_f) * step - new_height / 2;
+						float y = -((i + i_f) * step) + new_width / 2;
+		            	vec dir = vec(x, y, -1).normalize();
+		            	res = res +  lighting_scene(camera, dir);
+					}
+				}
+            	 frame[i+j*WIDTH] = (0.25) * res; 
 			}
 		}
+
 		std::ofstream ofs; 
 	    ofs.open("./out.ppm");
 	    ofs << "P6\n" << WIDTH << " " << HEIGHT << "\n255\n";
@@ -351,7 +319,7 @@ int main(){
 	Material m2 = Material(vec(255, 255 ,0.),  setting2, 5000.0f, 0.f,   0.99f,  1.55f); //0.f, 1.55f);
 	//m2 = Material(vec(255, 255 ,0.),  setting2, 60.0f, 0.0f,   1.f,  1.33f); 
 	Material m3 = Material(vec(0., 0., 255),   setting3, 50.f,  0.1f, 0.f);
-	Material m4 = Material(vec(0., 255., 255), setting4, 100.f, 0.05f);
+	Material m4 = Material(vec(0., 255., 255), setting1, 100.f, 0.05f);
 
 	vec setting_for_plane1 =  vec(0.8,0.8, 0.5);
 	Material m_for_plane1 = Material(vec(255., 0., 255),   setting_for_plane1, 50.f,  0.05f);
@@ -366,6 +334,8 @@ int main(){
 	my_scene.lamps.push_back(Light(vec(-30, 20,  20), 1.));//camera, 1.));//
 	my_scene.lamps.push_back(Light(vec(10, -20,  40), 0.4));
 	my_scene.lamps.push_back(Light(camera, 0.02));
+	m1 = Material(vec(73,255,137),  setting1, 50.f,  0.05f);
+	my_scene.cubes.push_back(Cube(vec(-4,    -4,   -4), vec(-2,    -2,   -2), m1));
 	my_scene.print_scene(camera);
 	return 0;
 }
