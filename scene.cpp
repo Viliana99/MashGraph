@@ -6,13 +6,82 @@
 #include <vector>
 #include "omp.h"
 #include "head.h"
+#include <thread>
+#include <string.h> 
+
+#define PRETTY_YELLOW vec(255, 217, 25)
+#define BLUE vec(0., 0., 255)
+#define SKYBLUE vec(0., 255., 255)
+#define LIGHT_GREEN vec(73,255,137)
+#define LIGHT_PINK  vec(255., 182., 193.)
+#define BLACK vec(0.,0.,0.)
+#define WHITE vec(255., 255., 255.)
 
 
-#define WIDTH 1300
-#define HEIGHT 1300
+#define MIRROR Material(BLUE,  vec(1., 0.5, 1.), 50.f,  0.1f, 0.f)
+#define REFRACT_GLASS  Material(BLACK,  vec(0., 1., 0.), 5000.0f, 0.f,   0.99f,  1.55f)
+#define VELVET Material(SKYBLUE, vec(1., 0., 0.), 100.f, 0.05f)
+#define GOLD  Material(PRETTY_YELLOW, vec(1., 1., 0.3), 50.f,  0.05f)
+#define IRON Material(BLACK, vec(1., 1., 0.3), 50.f,  0.05f)
+
+#define WIDTH 1280
+#define HEIGHT 720
 
 using namespace std;
 
+void save_BMP(const char* fileName, unsigned char *buf, int width=WIDTH, int height=HEIGHT) {
+    const int fileHeaderSize = 14;
+    const int infoHeaderSize = 40;
+    
+    unsigned char bmp_file_header[14] = { 'B', 'M', 0, 0, 0, 0, 0, 0, 0, 0, 54, 0, 0, 0, };
+	unsigned char bmp_info_header[40] = { 40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 24, 0, };
+	unsigned char bmp_pad[3] = { 0, 0, 0, };
+    
+    int paddingSize = (4 - (width * 3) % 4) % 4;
+    int size = fileHeaderSize + infoHeaderSize + (3 * width + paddingSize) * height;
+    
+	bmp_file_header[2]  = static_cast<unsigned char>(size      );
+	bmp_file_header[3]  = static_cast<unsigned char>(size >>  8);
+	bmp_file_header[4]  = static_cast<unsigned char>(size >> 16);
+	bmp_file_header[5]  = static_cast<unsigned char>(size >> 24);
+
+	bmp_info_header[4]  = static_cast<unsigned char>(width      );
+	bmp_info_header[5]  = static_cast<unsigned char>(width >>  8);
+	bmp_info_header[6]  = static_cast<unsigned char>(width >> 16);
+	bmp_info_header[7]  = static_cast<unsigned char>(width >> 24);
+
+	bmp_info_header[8]  = static_cast<unsigned char>(height      );
+	bmp_info_header[9]  = static_cast<unsigned char>(height >>  8);
+	bmp_info_header[10] = static_cast<unsigned char>(height >> 16);
+	bmp_info_header[11] = static_cast<unsigned char>(height >> 24);
+    
+    FILE *file = fopen(fileName, "wb");
+    
+    if (file)
+	{
+		fwrite(bmp_file_header, 1, 14, file);
+		fwrite(bmp_info_header, 1, 40, file);
+
+		for (int i = 0; i < height; i++)
+		{
+			fwrite(buf + (width * i * 3), 3, width, file);
+			fwrite(bmp_pad, 1, ((4 - (width * 3) % 4) % 4), file);
+		}
+		fclose(file);
+	}
+}
+
+void save(const char* fileName, std::vector<vec>& frame) {
+	std::ofstream ofs; 
+    ofs.open(fileName);
+    ofs << "P6\n" << WIDTH << " " << HEIGHT << "\n255\n";
+    for (int i = 0; i < HEIGHT*WIDTH; i++) {
+            ofs << (char)(frame[i][0]);
+            ofs << (char)(frame[i][1]);
+            ofs << (char)(frame[i][2]);
+    }
+    ofs.close();
+}
 
 struct Material{
 
@@ -51,7 +120,6 @@ struct Cube{
 	Material material;
 	vec vmin;
 	vec vmax;
-	//float a;
 	Cube(const vec& c, const vec& c1, const Material& cc): vmin(c), vmax(c1), material(cc) {} 
 };
 
@@ -71,7 +139,7 @@ struct Scene {
 	float eps2;
 	bool WhereAmI; //in air (true) or in object (false)
 	Plane plane;
-	Scene(vec c, int d, const Plane& p, float e=0.01, float ee=0.0001, bool where=true): plane(p), background(c), WhereAmI(where), depth_scene(d) {
+	Scene(vec c, int d, const Plane& p, float e=0.01, float ee=0.001, bool where=true): plane(p), background(c), WhereAmI(where), depth_scene(d) {
 		eps = e;
 		eps2 = ee;
 	}
@@ -113,7 +181,7 @@ struct Scene {
 			        hit = hit_plane;
 			        normalb = vec(-1,0,0);
 			        material_pixel = plane.material_table;
-			        material_pixel.color = ((int(0.25 * hit.y - 30) + int(0.25 * hit.z)) & 1) ? vec(255,255,255) : vec(0, 0, 0);
+			        material_pixel.color = ((int(0.25 * hit.y - 30) + int(0.25 * hit.z)) & 1) ? WHITE : BLACK;
 			        return true;
 			    }
 			}
@@ -152,9 +220,9 @@ struct Scene {
 			hit = camera + min_dist * dir;
 			vec tmp = vec(0., 0., 0.);
 			for (int i = 0; i < 3; i++) {
-				if (abs(hit[i] - cube.vmin[i]) < eps)
+				if (abs(hit[i] - cube.vmin[i]) < eps2) 
 					tmp[i] = -1.;
-				if (abs(hit[i] - cube.vmax[i]) < eps)
+				if (abs(hit[i] - cube.vmax[i]) < eps2)
 					tmp[i] = 1.;
 			}
 			normalb = tmp;
@@ -217,6 +285,8 @@ struct Scene {
 		} else {
 			 refraction_dir = vec(0., 0., 0.);
 		}
+		refraction_dir = WhereAmI ? refraction_dir - eps * normalb : refraction_dir + eps * normalb;
+
 		return refraction_dir;
 	}
 	
@@ -234,7 +304,10 @@ struct Scene {
 				reflection_color =  lighting_scene(hit_shift, reflection_dir, depth + 1);
 		    }
 			if (material_pixel.refraction) {
-				refraction_color =  lighting_scene(hit_shift, refract(material_pixel, dir, normalb), depth + 1);
+				vec refraction_dir = refract(material_pixel, dir, normalb);
+				hit_shift = hit*normalb < 0 ? hit +  eps * normalb : hit -  eps * normalb;
+				//refraction_dir = hit_shift * normalb ? refraction_dir - eps * normalb : refraction_dir + eps * normalb;
+				refraction_color =  lighting_scene(hit_shift, refraction_dir, depth + 1);
 			}
 			for (int i = 0; i < lamps.size(); i++){
 				if (skip_light(i, hit)) {
@@ -252,8 +325,6 @@ struct Scene {
 			res = res + refraction_color*material_pixel.refraction;
 			res = res + vec(255., 255., 255.)*sum_shine*material_pixel.matte;
 	        res =  res + reflection_color*material_pixel.mirror;
-			
-			//cout << refraction_color << endl;
 			if ( (res[0] >= 256) || (res[1] >= 256) || (res[2] >= 256)) {
 				res = vec(min(255.f, max(0.f, res[0])), min(255.f, max(0.f,res[1])), min(255.f, max(0.f,res[2])));
 			}
@@ -262,80 +333,89 @@ struct Scene {
 		return material_pixel.color;
 	}
 
-	void print_scene(vec camera){
+	void print_scene(vec camera, const char* fileName="out.bmp", bool BMP=true, int num_threads=8){
 		float fov = M_PI / 6;
 		std::vector<vec> frame(WIDTH * HEIGHT);
+		unsigned char bmp_frame[HEIGHT][WIDTH][3];
+		int i, j;
 		omp_set_num_threads(10);
-//#pragma omp parallel
+        #pragma omp parallel private(i, j)
+        {
 
-		#pragma omp for
-		for (int i = 0; i < WIDTH; i++) {
-			#pragma omp for
-			for (int j = 0; j < HEIGHT; j++) {
+
+        #pragma omp for collapse(2) schedule(dynamic)
+
+		for (i = 0; i < WIDTH; i++) {
+			for (j = 0; j < HEIGHT; j++) {
 				WhereAmI = true;
 				float new_height = 2 * tan(fov / 2.);
 				float new_width = new_height * (float)WIDTH / (float)HEIGHT;
 				float step = new_height / (float)HEIGHT;
 				vec res;
 
+
+
 				for (float i_f = 0.33; i_f < 1.f; i_f = i_f + 0.34) {
 					for (float j_f = 0.33; j_f < 1.f; j_f = j_f + 0.34) {
 						float x = (j + j_f) * step - new_height / 2;
 						float y = -((i + i_f) * step) + new_width / 2;
+		            	x = -x;
 		            	vec dir = vec(x, y, -1).normalize();
 		            	res = res +  lighting_scene(camera, dir);
 					}
 				}
-            	 frame[i+j*WIDTH] = (0.25) * res; 
+				res = (0.25) * res;
+				if (!BMP) {
+					frame[i+j*WIDTH] = res; 
+				} else {
+					bmp_frame[j][i][2] = (unsigned char) res.x; ///red
+	                bmp_frame[j][i][1] = (unsigned char) res.y; ///green
+	                bmp_frame[j][i][0] = (unsigned char) res.z; ///blue
+				} 
 			}
 		}
 
-		std::ofstream ofs; 
-	    ofs.open("./out.ppm");
-	    ofs << "P6\n" << WIDTH << " " << HEIGHT << "\n255\n";
-	    for (int i = 0; i < HEIGHT*WIDTH; i++) {
-	            ofs << (char)(frame[i][0]);
-	            ofs << (char)(frame[i][1]);
-	            ofs << (char)(frame[i][2]);
-	    }
-	    ofs.close();
+    	}
+		if (BMP) {
+			save_BMP(fileName, (unsigned char *)bmp_frame);
+		} else {
+			save(fileName, frame);
+		}
 	}
-
 };
 
 
-int main(){
-	//vec color; const float shine; const float min_light; float matte1=0.f; float mirror1=0.f;
-	//float color_saturation1=1.f, float refraction ; float refraction_saturation)
-	vec setting1 =  vec(1.,1., 0.3); //c_s, no_matte (0), mirror
-	//fdsfsdfdsfsdfdkffdkjngkjfbfjhvbhfbvhkdbfhvbfdkjbvjds
 
-	vec setting2 =  vec(0. ,0.5, 0.);
-	//setting2 =  vec(0.,0., 0.);
-	vec setting3 =  vec(1.,0.5, 1.0);
-	vec setting4 =  vec(1.,0., 0.);
+int main(int argc, char* argv []){
 	vec camera = vec(3., 0., 30.);
-	Material m1 = Material(vec(255, 217, 25),  setting1, 50.f,  0.05f);
-	Material m2 = Material(vec(255, 255 ,0.),  setting2, 5000.0f, 0.f,   0.99f,  1.55f); //0.f, 1.55f);
-	//m2 = Material(vec(255, 255 ,0.),  setting2, 60.0f, 0.0f,   1.f,  1.33f); 
-	Material m3 = Material(vec(0., 0., 255),   setting3, 50.f,  0.1f, 0.f);
-	Material m4 = Material(vec(0., 255., 255), setting1, 100.f, 0.05f);
 
 	vec setting_for_plane1 =  vec(0.8,0.8, 0.5);
-	Material m_for_plane1 = Material(vec(255., 0., 255),   setting_for_plane1, 50.f,  0.05f);
+	Material m_for_plane1 = Material(BLACK,   setting_for_plane1, 50.f,  0.05f);
 	Plane plane_chess =Plane(vec(4., 0., -1.), m_for_plane1);
-	Scene my_scene(vec(255., 182., 193.), 7, plane_chess);//shine min_light refrac refr_sat
+	Scene my_scene(LIGHT_PINK, 4, plane_chess);//shine min_light refrac refr_sat
 
 
-	my_scene.spheres.push_back(Sphere(vec(-3,    0,   -16), 2, m1));
-	my_scene.spheres.push_back(Sphere(vec(0., -2, 0), 2, m2));
-	my_scene.spheres.push_back(Sphere(vec(1.5, -0.5, -18), 3, m3));
-	my_scene.spheres.push_back(Sphere(vec(7., 5., -18), 3, m4));
+	my_scene.spheres.push_back(Sphere(vec(-3,    0,   -16), 2, GOLD));
+	my_scene.spheres.push_back(Sphere(vec(0., -2, 0), 2, REFRACT_GLASS));
+	my_scene.spheres.push_back(Sphere(vec(1.5, -0.5, -18), 3, MIRROR));
+	my_scene.spheres.push_back(Sphere(vec(7., 5., -18), 3, VELVET));
 	my_scene.lamps.push_back(Light(vec(-30, 20,  20), 1.));//camera, 1.));//
 	my_scene.lamps.push_back(Light(vec(10, -20,  40), 0.4));
 	my_scene.lamps.push_back(Light(camera, 0.02));
-	m1 = Material(vec(73,255,137),  setting1, 50.f,  0.05f);
-	my_scene.cubes.push_back(Cube(vec(-4,    -4,   -4), vec(-2,    -2,   -2), m1));
+	my_scene.cubes.push_back(Cube(vec(-4,    -4,   -4), vec(-2,    -2,   -2), IRON));
+
+	std::vector<vec> frame(WIDTH * HEIGHT);
+/*
+	std::thread thr(&Scene::print_scene, &my_scene, camera, ref(frame));
+	if (thr.joinable())
+		thr.join();*/
 	my_scene.print_scene(camera);
+	
+	for (int i = 0; i < argc; i++){
+		cout<< argv[i] << wctype(argv[i]) << endl;
+		if (!strcmp(argv[i], "./a"))
+			cout << "eeeeeee" << endl;
+	}
+
 	return 0;
 }
