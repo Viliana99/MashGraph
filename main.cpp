@@ -381,7 +381,6 @@ struct Scene {
 };
 
 
-
 int main(int argc, char* argv []){
     
     string fileName; 
